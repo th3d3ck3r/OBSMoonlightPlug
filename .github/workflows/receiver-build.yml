@@ -1,0 +1,62 @@
+name: Receiver native builds
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libobs-dev libavcodec-dev libavutil-dev libswscale-dev libopus-dev libssl-dev qt6-base-dev libsimde-dev
+      - run: cmake -S . -B build-check -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build-check --parallel 4
+      - run: ctest --test-dir build-check --output-on-failure
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Static crypto dependency
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Configure and build Windows x64
+        shell: pwsh
+        run: |
+          cmake --preset windows-x64 -DOPENSSL_ROOT_DIR="$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" -DOPENSSL_USE_STATIC_LIBS=ON -DRECEIVER_BUILD_TESTS=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset windows-x64 --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --install build_x64 --config RelWithDebInfo --prefix package/windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/bundle-runtimes.py package/windows/obs-gamestream-receiver/bin/64bit/obs-gamestream-receiver.dll .deps
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obs-gamestream-receiver-windows-x64
+          path: package/windows
+          if-no-files-found: error
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal crypto dependency
+        run: bash scripts/build-crypto-macos.sh
+      - name: Configure and build Mac universal
+        run: |
+          cmake --preset macos -DOPENSSL_ROOT_DIR="$PWD/.deps/openssl-universal" -DOPENSSL_USE_STATIC_LIBS=ON -DRECEIVER_BUILD_TESTS=OFF
+          cmake --build --preset macos --parallel 4
+          original=$(find build_macos -maxdepth 3 -name 'obs-gamestream-receiver.plugin' -type d | head -1)
+          test -n "$original"
+          mkdir -p package/macos
+          ditto "$original" package/macos/obs-gamestream-receiver.plugin
+          python3 scripts/bundle-runtimes.py package/macos/obs-gamestream-receiver.plugin .deps
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obs-gamestream-receiver-macos-universal
+          path: package/macos
+          if-no-files-found: error

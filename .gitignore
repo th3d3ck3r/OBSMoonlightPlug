@@ -1,0 +1,8 @@
+/build*/
+/.deps/
+/package/
+*.lock.json
+.DS_Store
+/cmake/.CMakeBuildNumber
+__pycache__/
+*.pyc
