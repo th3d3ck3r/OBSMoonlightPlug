@@ -52,10 +52,12 @@ jobs:
         with:
           path: .deps
           key: windows-obs-sdk-2025-07-11-v1
+      - name: Archive Windows preview
+        run: python scripts/package-preview.py windows-x64 package/windows
       - uses: actions/upload-artifact@v4
         with:
           name: obs-gamestream-receiver-windows-x64
-          path: package/windows
+          path: obs-gamestream-receiver-windows-x64.zip
           if-no-files-found: error
   macos:
     runs-on: macos-15
@@ -81,10 +83,12 @@ jobs:
         with:
           path: .deps
           key: macos-openssl-3.5.8-obs-2025-07-11-v1
+      - name: Archive Mac preview with executable permissions
+        run: python3 scripts/package-preview.py macos-universal package/macos
       - uses: actions/upload-artifact@v4
         with:
           name: obs-gamestream-receiver-macos-universal
-          path: package/macos
+          path: obs-gamestream-receiver-macos-universal.zip
           if-no-files-found: error
   release:
     needs: [linux-check, windows, macos]
@@ -102,15 +106,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir downloads
-          for platform in windows-x64 macos-universal; do
-            folder="artifacts/obs-gamestream-receiver-$platform"
-            cp LICENSE "$folder/LICENSE.txt"
-            cp README.md "$folder/README.md"
-            cp docs/UPSTREAM.md "$folder/UPSTREAM.md"
-            mkdir -p "$folder/licenses"
-            cp third_party/moonlight-common-c/enet/LICENSE "$folder/licenses/ENet.txt"
-            cp third_party/moonlight-common-c/nanors/LICENSE "$folder/licenses/nanors.txt"
-            (cd "$folder" && zip -qr "$GITHUB_WORKSPACE/downloads/obs-gamestream-receiver-$platform.zip" .)
-          done
+          find artifacts -name 'obs-gamestream-receiver-*.zip' -exec cp {} downloads/ \;
           tag="v0.1.0-preview.${{ github.run_number }}"
           gh release create "$tag" downloads/*.zip --target "$GITHUB_SHA" --prerelease --title "GameStream Receiver 0.1.0 Preview ${{ github.run_number }}" --notes "Windows x64 and universal Intel/Apple Silicon Mac builds. Linux media tests passed. Live-host and OBS loading validation are still required. Installation instructions are included."
