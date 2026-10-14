@@ -107,6 +107,9 @@ jobs:
             cp LICENSE "$folder/LICENSE.txt"
             cp README.md "$folder/README.md"
             cp docs/UPSTREAM.md "$folder/UPSTREAM.md"
+            mkdir -p "$folder/licenses"
+            cp third_party/moonlight-common-c/enet/LICENSE "$folder/licenses/ENet.txt"
+            cp third_party/moonlight-common-c/nanors/LICENSE "$folder/licenses/nanors.txt"
             (cd "$folder" && zip -qr "$GITHUB_WORKSPACE/downloads/obs-gamestream-receiver-$platform.zip" .)
           done
           tag="v0.1.0-preview.${{ github.run_number }}"

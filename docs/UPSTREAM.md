@@ -34,3 +34,7 @@ It is not a wholesale embedding of the Moonlight application's renderer.
 
 Upstream licensing is preserved in the vendored directories. The combined plugin
 source is distributed under GPL-3.0-or-later.
+
+When the SDK has no standalone Opus library, CMake builds Opus 1.5.2 at commit
+`ddbe48383984d56acd9e1ab6a090c54ca6b735a6` statically. Universal Mac builds use
+its portable C decoder to avoid applying one CPU architecture’s intrinsics to both slices.

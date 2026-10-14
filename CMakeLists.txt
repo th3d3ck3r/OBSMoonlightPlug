@@ -42,8 +42,28 @@ find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h REQUIRED)
 find_library(AVCODEC_LIBRARY NAMES avcodec REQUIRED)
 find_library(AVUTIL_LIBRARY NAMES avutil REQUIRED)
 find_library(SWSCALE_LIBRARY NAMES swscale REQUIRED)
-find_path(OPUS_INCLUDE_DIR opus_multistream.h PATH_SUFFIXES opus REQUIRED)
-find_library(OPUS_LIBRARY NAMES opus libopus libopus-0 REQUIRED)
+find_path(OPUS_INCLUDE_DIR opus_multistream.h PATH_SUFFIXES opus)
+find_library(OPUS_LIBRARY NAMES opus libopus libopus-0)
+if(NOT OPUS_LIBRARY OR NOT OPUS_INCLUDE_DIR)
+  include(FetchContent)
+  set(BUILD_SHARED_LIBS OFF)
+  set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+  # Opus 1.5.2 CPU detection targets one architecture. Use its portable decoder
+  # for the combined Apple arm64/x86_64 target rather than cross-arch intrinsics.
+  if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES ";")
+    set(OPUS_DISABLE_INTRINSICS ON CACHE BOOL "" FORCE)
+  endif()
+  FetchContent_Declare(receiver_opus
+    GIT_REPOSITORY https://github.com/xiph/opus.git
+    GIT_TAG ddbe48383984d56acd9e1ab6a090c54ca6b735a6
+    EXCLUDE_FROM_ALL
+  )
+  FetchContent_MakeAvailable(receiver_opus)
+  set_target_properties(opus PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+  set(OPUS_LIBRARY opus)
+  set(OPUS_INCLUDE_DIR "${receiver_opus_SOURCE_DIR}/include")
+endif()
 include(CheckFunctionExists)
 include(CheckCXXSourceCompiles)
 set(BUILD_SHARED_LIBS OFF)
