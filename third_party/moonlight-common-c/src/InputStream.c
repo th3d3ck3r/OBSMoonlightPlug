@@ -675,7 +675,7 @@ int startInputStream(void) {
     // OBS source is a spectator: reject all input API calls and suppress haptics subscription.
 #ifdef OBS_RECEIVE_ONLY
     initialized = false;
-    if (0) sendEnableHaptics();
+    (void)&sendEnableHaptics;
 #else
     initialized = true;
     sendEnableHaptics();

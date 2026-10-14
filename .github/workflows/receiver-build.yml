@@ -16,22 +16,26 @@ jobs:
       - run: ctest --test-dir build-check --output-on-failure
   windows:
     runs-on: windows-2022
+    env:
+      VCPKG_INSTALLATION_ROOT: C:/vcpkg
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: actions/cache/restore@v4
         with:
-          path: ~/AppData/Local/vcpkg/archives
-          key: windows-openssl-static-md-v1
+          path: C:/vcpkg/installed/x64-windows-static-md
+          key: windows-openssl-installed-static-md-v2
       - name: Static crypto dependency
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows-static-md
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md/lib/libcrypto.lib")) {
+            & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows-static-md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - uses: actions/cache/save@v4
         with:
-          path: ~/AppData/Local/vcpkg/archives
-          key: windows-openssl-static-md-v1
+          path: C:/vcpkg/installed/x64-windows-static-md
+          key: windows-openssl-installed-static-md-v2
       - uses: actions/cache/restore@v4
         with:
           path: .deps

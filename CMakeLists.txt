@@ -71,6 +71,13 @@ set(BUILD_SHARED_LIBS OFF)
 add_subdirectory(third_party/moonlight-common-c EXCLUDE_FROM_ALL)
 target_compile_options(enet PRIVATE $<$<NOT:$<C_COMPILER_ID:MSVC>>:-Wno-unused-parameter> $<$<C_COMPILER_ID:MSVC>:/wd4100> $<$<C_COMPILER_ID:MSVC>:/wd5287>)
 target_compile_definitions(moonlight-common-c PRIVATE OBS_RECEIVE_ONLY=1)
+# Preserve upstream's portable socket-sized types and constant platform branches.
+# OBS template diagnostics remain strict for this plugin's own C++ sources.
+target_compile_options(moonlight-common-c PRIVATE $<$<C_COMPILER_ID:AppleClang,Clang>:-Wno-error=shorten-64-to-32> $<$<C_COMPILER_ID:AppleClang,Clang>:-Wno-error=unreachable-code>)
+if(APPLE)
+  target_compile_definitions(moonlight-common-c PRIVATE __APPLE_USE_RFC_3542=1)
+  target_compile_definitions(enet PRIVATE __APPLE_USE_RFC_3542=1)
+endif()
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE src third_party/moonlight-6.2 ${FFMPEG_INCLUDE_DIR} ${OPUS_INCLUDE_DIR})
 find_path(SIMDE_INCLUDE_DIR simde/x86/sse2.h)
 if(SIMDE_INCLUDE_DIR)
