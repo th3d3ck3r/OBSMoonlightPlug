@@ -22,11 +22,16 @@ function(_check_dependencies_macos)
 
   _check_dependencies()
 
-  execute_process(
-    COMMAND "xattr" -r -d com.apple.quarantine "${dependencies_dir}"
-    RESULT_VARIABLE result
-    COMMAND_ERROR_IS_FATAL ANY
-  )
+  # Clear quarantine only on downloaded SDKs, never unrelated source Git objects.
+  file(GLOB sdk_directories LIST_DIRECTORIES TRUE "${dependencies_dir}/obs-deps-*")
+  foreach(sdk_directory IN LISTS sdk_directories)
+    if(IS_DIRECTORY "${sdk_directory}")
+      execute_process(
+        COMMAND "xattr" -r -d com.apple.quarantine "${sdk_directory}"
+        COMMAND_ERROR_IS_FATAL ANY
+      )
+    endif()
+  endforeach()
 
   list(APPEND CMAKE_FRAMEWORK_PATH "${dependencies_dir}/Frameworks")
   set(CMAKE_FRAMEWORK_PATH ${CMAKE_FRAMEWORK_PATH} PARENT_SCOPE)

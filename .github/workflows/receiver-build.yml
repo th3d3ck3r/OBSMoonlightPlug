@@ -19,11 +19,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: windows-openssl-static-md-v1
       - name: Static crypto dependency
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows-static-md
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/cache/save@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: windows-openssl-static-md-v1
+      - uses: actions/cache/restore@v4
+        with:
+          path: .deps
+          key: windows-obs-sdk-2025-07-11-v1
       - name: Configure and build Windows x64
         shell: pwsh
         run: |
@@ -35,6 +47,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/bundle-runtimes.py package/windows/obs-gamestream-receiver/bin/64bit/obs-gamestream-receiver.dll .deps
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .deps
+          key: windows-obs-sdk-2025-07-11-v1
       - uses: actions/upload-artifact@v4
         with:
           name: obs-gamestream-receiver-windows-x64
@@ -44,6 +61,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: .deps
+          key: macos-openssl-3.5.8-obs-2025-07-11-v1
       - name: Build universal crypto dependency
         run: bash scripts/build-crypto-macos.sh
       - name: Configure and build Mac universal
@@ -55,8 +76,38 @@ jobs:
           mkdir -p package/macos
           ditto "$original" package/macos/obs-gamestream-receiver.plugin
           python3 scripts/bundle-runtimes.py package/macos/obs-gamestream-receiver.plugin .deps
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .deps
+          key: macos-openssl-3.5.8-obs-2025-07-11-v1
       - uses: actions/upload-artifact@v4
         with:
           name: obs-gamestream-receiver-macos-universal
           path: package/macos
           if-no-files-found: error
+  release:
+    needs: [linux-check, windows, macos]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package downloads and publish preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir downloads
+          for platform in windows-x64 macos-universal; do
+            folder="artifacts/obs-gamestream-receiver-$platform"
+            cp LICENSE "$folder/LICENSE.txt"
+            cp README.md "$folder/README.md"
+            cp docs/UPSTREAM.md "$folder/UPSTREAM.md"
+            (cd "$folder" && zip -qr "$GITHUB_WORKSPACE/downloads/obs-gamestream-receiver-$platform.zip" .)
+          done
+          tag="v0.1.0-preview.${{ github.run_number }}"
+          gh release create "$tag" downloads/*.zip --target "$GITHUB_SHA" --prerelease --title "GameStream Receiver 0.1.0 Preview ${{ github.run_number }}" --notes "Windows x64 and universal Intel/Apple Silicon Mac builds. Linux media tests passed. Live-host and OBS loading validation are still required. Installation instructions are included."
