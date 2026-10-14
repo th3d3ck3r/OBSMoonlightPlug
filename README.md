@@ -4,7 +4,7 @@ Receive Apollo/Sunshine video and audio directly as an OBS source. All controls 
 
 ## Current status
 
-The full module compiles and links on Linux. Headless tests pass for H.264, HEVC Main10/PQ output and luminance metadata, Opus stereo, timestamps, invalid settings, malformed packets and receive-only guards. Windows x64 and macOS universal (Intel + Apple Silicon) build workflows are included but have not run. Loading in native OBS, hardware decode, pairing and live host recording remain unverified.
+The full module compiles and links on Linux, including the pinned static Opus fallback. Headless tests pass for H.264, HEVC Main10/PQ output and luminance metadata, Opus stereo, timestamps, invalid settings, malformed packets and receive-only guards. The native pipeline builds Windows x64 and universal Mac (Intel + Apple Silicon) packages. A downloadable preview is published only after both native builds and the Linux tests succeed. Loading in native OBS, hardware decode, pairing and live host recording require device testing.
 
 The transport and pairing code are pinned to Moonlight v6.2.0. OBS owns rendering. Moonlight's standalone Metal/libplacebo renderer and desktop-specific Mac features are not embedded. See docs/UPSTREAM.md for exact revisions and adaptations.
 
@@ -61,7 +61,7 @@ cmake --build build-check --parallel 4
 ctest --test-dir build-check --output-on-failure
 ```
 
-Native workflow tests are currently disabled; the Linux test job checks actual compressed-media decoding. After native builds, test both Mac architectures, Windows, pairing/cancellation, hide/show behavior, reconnect, HDR and audio synchronization against a live host. Hardware acceleration and long recordings need device-level validation.
+Native headless media tests are currently disabled; the Linux test job checks actual compressed-media decoding. After native builds, test both Mac architectures, Windows, pairing/cancellation, hide/show behavior, reconnect, HDR and audio synchronization against a live host. Hardware acceleration and long recordings need device-level validation.
 
 ## License
 

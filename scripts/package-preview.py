@@ -1,5 +1,6 @@
 """Stage preview notices and archive on the native builder to preserve Mac modes."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,11 @@ for source in Path('.').glob('build*/_deps/receiver_opus-src/COPYING'):
     shutil.copy2(source, notices / 'Opus.txt')
 for source in Path('.deps').glob('openssl-universal/OPENSSL-LICENSE.txt'):
     shutil.copy2(source, notices / 'OpenSSL.txt')
+vcpkg_root = os.environ.get('VCPKG_INSTALLATION_ROOT')
+if vcpkg_root:
+    source = Path(vcpkg_root) / 'installed/x64-windows-static-md/share/openssl/copyright'
+    if source.is_file():
+        shutil.copy2(source, notices / 'OpenSSL.txt')
 # Retain notices supplied with the OBS media SDK, including FFmpeg dependencies.
 for sdk in Path('.deps').glob('obs-deps-*'):
     if not sdk.is_dir():
