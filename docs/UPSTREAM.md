@@ -19,6 +19,7 @@ Adaptations:
 - Added cancellable network requests and a bounded pairing wait.
 - Preserved binary hash bytes when deriving the pairing AES key and validated
   complete challenge-response lengths.
+- Range-check SDP integers before narrowing to fixed-width protocol fields.
 - Suppressed URL logging that could expose session-key query parameters.
 - Built the core with `OBS_RECEIVE_ONLY`: input APIs remain uninitialized and
   the haptics enable packet is suppressed. No controller is advertised at launch.

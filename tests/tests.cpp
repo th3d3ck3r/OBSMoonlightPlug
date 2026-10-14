@@ -7,12 +7,22 @@
 #include <stdexcept>
 #include <cstring>
 
+extern "C" bool parseSdpAttributeToUInt(const char*, const char*, uint32_t*);
+extern "C" bool parseSdpAttributeToInt(const char*, const char*, int*);
+
 static void check(bool ok,const char *message){if(!ok)throw std::runtime_error(message);}
 template<typename F>static void rejects(F f){bool failed=false;try{f();}catch(const std::exception&){failed=true;}check(failed,"invalid value accepted");}
 
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     try {
+        uint32_t unsignedValue=0;int signedValue=0;
+        check(parseSdpAttributeToUInt("a=test:4294967295\r\n","a=test",&unsignedValue)&&unsignedValue==UINT32_MAX,"SDP uint32 boundary failed");
+        check(!parseSdpAttributeToUInt("a=test:4294967296\r\n","a=test",&unsignedValue),"SDP uint32 overflow accepted");
+        check(!parseSdpAttributeToUInt("a=test: -1\r\n","a=test",&unsignedValue),"SDP negative unsigned accepted");
+        check(parseSdpAttributeToInt("a=test:-2147483648\r\n","a=test",&signedValue)&&signedValue==INT32_MIN,"SDP int32 boundary failed");
+        check(!parseSdpAttributeToInt("a=test:2147483648\r\n","a=test",&signedValue),"SDP int32 overflow accepted");
+        check(!parseSdpAttributeToInt("a=test:nope\r\n","a=test",&signedValue),"SDP nonnumeric input accepted");
         Settings s;s.host="192.168.1.20";s.validate();
         for(auto host:{"https://host","host/path","host name",""}){auto bad=s;bad.host=host;rejects([&]{bad.validate();});}
         auto bad=s;bad.width=1919;rejects([&]{bad.validate();});

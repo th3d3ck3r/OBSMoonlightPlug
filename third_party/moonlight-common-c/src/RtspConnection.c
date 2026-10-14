@@ -1,5 +1,7 @@
 #include "Limelight-internal.h"
 #include "Rtsp.h"
+#include <errno.h>
+#include <limits.h>
 
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
@@ -916,7 +918,14 @@ bool parseSdpAttributeToUInt(const char* payload, const char* name, uint32_t* va
     }
 
     // Read the integer up to the newline at the end of the SDP attribute
-    *val = strtoul(valst + 1, NULL, 0);
+    const char* start = valst + 1;
+    while (*start == ' ' || *start == '\t') start++;
+    if (*start == '-') return false;
+    char* end;
+    errno = 0;
+    unsigned long parsed = strtoul(start, &end, 0);
+    if (end == start || errno == ERANGE || parsed > UINT32_MAX) return false;
+    *val = (uint32_t)parsed;
 
     return true;
 }
@@ -935,7 +944,11 @@ bool parseSdpAttributeToInt(const char* payload, const char* name, int* val) {
     }
 
     // Read the integer up to the newline at the end of the SDP attribute
-    *val = strtol(valst + 1, NULL, 0);
+    char* end;
+    errno = 0;
+    long parsed = strtol(valst + 1, &end, 0);
+    if (end == valst + 1 || errno == ERANGE || parsed < INT_MIN || parsed > INT_MAX) return false;
+    *val = (int)parsed;
 
     return true;
 }
