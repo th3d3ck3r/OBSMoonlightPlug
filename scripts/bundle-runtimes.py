@@ -64,7 +64,7 @@ def main():
                 subprocess.run(["install_name_tool","-id","@loader_path/"+name,str(destination)],check=True)
     if mac:
         for binary in visited:
-            subprocess.run(["lipo","-verify_arch","arm64","x86_64",str(binary)],check=True)
+            subprocess.run(["lipo",str(binary),"-verify_arch","arm64","x86_64"],check=True)
         subprocess.run(["codesign","--force","--deep","--sign","-",str(plugin)],check=True)
     (target/"receiver-media-runtime-files.txt").write_text("\n".join(bundled)+"\n")
     print("Bundled media runtime libraries:",", ".join(bundled) or "none needed")

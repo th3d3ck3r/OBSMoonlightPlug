@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 crypto_root="$root/.deps/openssl-universal"
 mkdir -p "$root/.deps"
 if [[ -f "$crypto_root/lib/libcrypto.a" ]]; then
-  lipo -verify_arch arm64 x86_64 "$crypto_root/lib/libcrypto.a"
+  lipo "$crypto_root/lib/libcrypto.a" -verify_arch arm64 x86_64
   exit 0
 fi
 version="3.5.8"
@@ -27,5 +27,5 @@ mkdir -p "$crypto_root/lib" "$crypto_root/include"
 cp -R "$root/.deps/openssl-arm64/include/openssl" "$crypto_root/include/"
 lipo -create "$root/.deps/openssl-arm64/lib/libcrypto.a" "$root/.deps/openssl-x86_64/lib/libcrypto.a" -output "$crypto_root/lib/libcrypto.a"
 lipo -create "$root/.deps/openssl-arm64/lib/libssl.a" "$root/.deps/openssl-x86_64/lib/libssl.a" -output "$crypto_root/lib/libssl.a"
-lipo -verify_arch arm64 x86_64 "$crypto_root/lib/libcrypto.a"
+lipo "$crypto_root/lib/libcrypto.a" -verify_arch arm64 x86_64
 cp "$source_dir/LICENSE.txt" "$crypto_root/OPENSSL-LICENSE.txt"
