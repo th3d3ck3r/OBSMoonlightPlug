@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 platform, stage_arg = sys.argv[1:]
@@ -38,6 +39,7 @@ shutil.copy2('README.md', stage / 'README.md')
 shutil.copy2('docs/UPSTREAM.md', stage / 'UPSTREAM.md')
 archive = Path(f'obs-gamestream-receiver-{platform}.zip').resolve()
 if platform == 'macos-universal':
+    subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(stage / 'obs-gamestream-receiver.plugin')], check=True)
     subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', str(stage), str(archive)], check=True)
 else:
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
@@ -47,4 +49,15 @@ else:
 with zipfile.ZipFile(archive) as output:
     if output.testzip() is not None:
         raise RuntimeError('Invalid preview archive')
+if platform == 'macos-universal':
+    # Exercise the exact download archive, not just the pre-archive directory.
+    with tempfile.TemporaryDirectory(prefix='receiver-signature-check-') as directory:
+        subprocess.run(['ditto', '-x', '-k', str(archive), directory], check=True)
+        plugin = Path(directory) / 'obs-gamestream-receiver.plugin'
+        subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(plugin)], check=True)
+        executable = plugin / 'Contents/MacOS/obs-gamestream-receiver'
+        subprocess.run(['lipo', str(executable), '-verify_arch', 'arm64', 'x86_64'], check=True)
+        if not os.access(executable, os.X_OK):
+            raise RuntimeError('Archive lost executable permissions')
+    print('Extracted Mac ZIP passed strict signature, universal architecture and executable permission checks')
 print(archive)

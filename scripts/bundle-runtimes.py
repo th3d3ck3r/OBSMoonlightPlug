@@ -62,11 +62,20 @@ def main():
                 reference="@loader_path/../Frameworks/"+name if binary==executable else "@loader_path/"+name
                 subprocess.run(["install_name_tool","-change",dependency,reference,str(binary)],check=True)
                 subprocess.run(["install_name_tool","-id","@loader_path/"+name,str(destination)],check=True)
+    # Finish every resource write before sealing the bundle.
+    manifest_directory=plugin/"Contents/Resources" if mac else target
+    manifest_directory.mkdir(parents=True,exist_ok=True)
+    (manifest_directory/"receiver-media-runtime-files.txt").write_text("\n".join(bundled)+"\n")
     if mac:
         for binary in visited:
             subprocess.run(["lipo",str(binary),"-verify_arch","arm64","x86_64"],check=True)
-        subprocess.run(["codesign","--force","--deep","--sign","-",str(plugin)],check=True)
-    (target/"receiver-media-runtime-files.txt").write_text("\n".join(bundled)+"\n")
+        # Sign nested code first, then the complete plugin. Do not write into
+        # the bundle after this point.
+        for binary in sorted(visited):
+            if binary!=executable:
+                subprocess.run(["codesign","--force","--sign","-",str(binary)],check=True)
+        subprocess.run(["codesign","--force","--sign","-",str(plugin)],check=True)
+        subprocess.run(["codesign","--verify","--deep","--strict","--verbose=2",str(plugin)],check=True)
     print("Bundled media runtime libraries:",", ".join(bundled) or "none needed")
 
 
