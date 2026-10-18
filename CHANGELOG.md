@@ -1,5 +1,9 @@
 # Changelog
 
+## Hardware video color repair
+
+Pass decoded NV12/P010 frames directly to OBS with their original plane pitches instead of running a redundant same-format swscale conversion. The full-range NV12 conversion could leave chroma zeroed, causing green video. Regression tests check chroma values across padded rows for SDR/HDR and full/limited range.
+
 ## Self-contained HTTPS
 
 Use bundled OpenSSL for client identities, exact host certificate pins and HTTPS, with ordinary Qt TCP/DNS sockets. The receiver no longer needs OBS to provide Qt TLS plugins. Adds real mutual TLS, wrong-pin rejection, framing, timeout and cancellation integration tests with Qt plugin discovery disabled.

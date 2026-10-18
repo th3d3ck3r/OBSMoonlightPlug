@@ -31,6 +31,7 @@ public:
     std::string statistics() const;
     static bool hasCodec(enum AVCodecID codec);
 private:
+    friend struct MediaTestAccess;
     static enum AVPixelFormat chooseFormat(AVCodecContext *ctx, const enum AVPixelFormat *formats);
     bool openDecoder(const AVCodec *codec, bool hardware);
     void outputFrame(AVFrame *frame);

@@ -107,18 +107,25 @@ void Media::outputFrame(AVFrame *f) {
     if(f->width<1 || f->height<1 || f->width>7680 || f->height>4320) {++failed_;return;}
     const bool hdr=settings_.hdr && (format_ & VIDEO_FORMAT_MASK_10BIT);
     AVPixelFormat output=hdr?AV_PIX_FMT_P010LE:AV_PIX_FMT_NV12;
-    int size=av_image_get_buffer_size(output,f->width,f->height,32);
-    if(size<=0) {++failed_;return;}
-    pixels_.resize(static_cast<size_t>(size));
     uint8_t *planes[4]={};int strides[4]={};
-    av_image_fill_arrays(planes,strides,pixels_.data(),output,f->width,f->height,32);
-    scale_=sws_getCachedContext(scale_,f->width,f->height,static_cast<AVPixelFormat>(f->format),f->width,f->height,output,SWS_FAST_BILINEAR,nullptr,nullptr,nullptr);
-    if(!scale_) {++failed_;return;}
     int range=f->color_range==AVCOL_RANGE_UNSPECIFIED?(settings_.fullRange?1:0):(f->color_range==AVCOL_RANGE_JPEG?1:0);
-    int colors=(f->colorspace==AVCOL_SPC_BT2020_NCL || hdr)?SWS_CS_BT2020:SWS_CS_ITU709;
-    const int *coeff=sws_getCoefficients(colors);
-    sws_setColorspaceDetails(scale_,coeff,range,coeff,range,0,1<<16,1<<16);
-    if(sws_scale(scale_,f->data,f->linesize,0,f->height,planes,strides)<=0) {++failed_;return;}
+    // Hardware downloads already use NV12/P010. Preserve both planes and their
+    // actual pitches: swscale's same-format full-range path can omit chroma.
+    // OBS copies the frame synchronously before this function returns.
+    if(f->format==output) {
+        for(size_t i=0;i<4;++i){planes[i]=f->data[i];strides[i]=f->linesize[i];}
+    } else {
+        int size=av_image_get_buffer_size(output,f->width,f->height,32);
+        if(size<=0) {++failed_;return;}
+        pixels_.resize(static_cast<size_t>(size));
+        av_image_fill_arrays(planes,strides,pixels_.data(),output,f->width,f->height,32);
+        scale_=sws_getCachedContext(scale_,f->width,f->height,static_cast<AVPixelFormat>(f->format),f->width,f->height,output,SWS_FAST_BILINEAR,nullptr,nullptr,nullptr);
+        if(!scale_) {++failed_;return;}
+        int colors=(f->colorspace==AVCOL_SPC_BT2020_NCL || hdr)?SWS_CS_BT2020:SWS_CS_ITU709;
+        const int *coeff=sws_getCoefficients(colors);
+        sws_setColorspaceDetails(scale_,coeff,range,coeff,range,0,1<<16,1<<16);
+        if(sws_scale(scale_,f->data,f->linesize,0,f->height,planes,strides)<=0) {++failed_;return;}
+    }
     int64_t pts=f->pts==AV_NOPTS_VALUE?static_cast<int64_t>(decoded_)*1000000/settings_.fps:f->pts;
     int64_t now=static_cast<int64_t>(os_gettime_ns());
     if(!videoEpoch_) videoEpoch_=now-pts*1000;

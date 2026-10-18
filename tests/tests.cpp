@@ -13,6 +13,10 @@
 #include <stdexcept>
 #include <cstring>
 
+struct MediaTestAccess {
+    static void output(Media &media,AVFrame *frame,int format){media.format_=format;media.outputFrame(frame);}
+};
+
 extern "C" bool parseSdpAttributeToUInt(const char*, const char*, uint32_t*);
 extern "C" bool parseSdpAttributeToInt(const char*, const char*, int*);
 
@@ -81,6 +85,38 @@ int main(int argc,char **argv) {
         check(NvHTTP::getXmlStringFromHex("<root><data>000102ff</data></root>","data")==QByteArray::fromHex("000102ff"),"binary XML value corrupt");
         check(NvHTTP::getCurrentGame("<root><state>SERVER_FREE</state><currentgame>42</currentgame></root>")==0,"free server app incorrectly treated as running");
         check(NvHTTP::getCurrentGame("<root><state>XYZ_SERVER_BUSY</state><currentgame>42</currentgame></root>")==42,"busy app missing");
+
+        // Model a VideoToolbox download with padded luma/chroma pitches.
+        // Check color values, not just the presence of plane pointers.
+        for(bool tenBit:{false,true})for(bool fullRange:{false,true}) {
+            AVFrame *download=av_frame_alloc();
+            download->format=tenBit?AV_PIX_FMT_P010LE:AV_PIX_FMT_NV12;
+            download->width=66;download->height=34;
+            download->color_range=fullRange?AVCOL_RANGE_JPEG:AVCOL_RANGE_MPEG;
+            check(av_frame_get_buffer(download,64)>=0,"synthetic hardware frame allocation failed");
+            for(int y=0;y<34;++y)for(int x=0;x<66;++x) {
+                if(tenBit)reinterpret_cast<uint16_t*>(download->data[0]+y*download->linesize[0])[x]=400<<6;
+                else download->data[0][y*download->linesize[0]+x]=81;
+            }
+            for(int y=0;y<17;++y)for(int x=0;x<66;++x) {
+                if(tenBit)reinterpret_cast<uint16_t*>(download->data[1]+y*download->linesize[1])[x]=static_cast<uint16_t>((x%2?900:360)<<6);
+                else download->data[1][y*download->linesize[1]+x]=static_cast<uint8_t>(x%2?240:90);
+            }
+            int outputs=0;
+            Media pass(nullptr,[&](const obs_source_frame *out){
+                check(out->full_range==fullRange,"hardware frame range changed");
+                check(out->format==(tenBit?VIDEO_FORMAT_P010:VIDEO_FORMAT_NV12),"hardware output format changed");
+                for(int y=0;y<17;++y)for(int x=0;x<66;++x) {
+                    const auto *row=out->data[1]+y*out->linesize[1];
+                    const unsigned value=tenBit?reinterpret_cast<const uint16_t*>(row)[x]:row[x];
+                    check(value==static_cast<unsigned>(tenBit?((x%2?900:360)<<6):(x%2?240:90)),"hardware chroma lost or pitch ignored (green video)");
+                }
+                ++outputs;
+            });
+            Settings config=s;config.hdr=tenBit;pass.configure(config);
+            MediaTestAccess::output(pass,download,tenBit?VIDEO_FORMAT_H265_MAIN10:VIDEO_FORMAT_H264);
+            check(outputs==1,"hardware-like frame missing");av_frame_free(&download);
+        }
 
         int frames=0,audioFrames=0;uint64_t lastTimestamp=0;
         Media media(nullptr,[&](const obs_source_frame *frame){
