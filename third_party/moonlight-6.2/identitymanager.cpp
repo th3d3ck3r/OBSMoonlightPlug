@@ -96,10 +96,10 @@ void IdentityManager::createCredentials(QSettings& settings)
     BIO_free(biocert);
 
     // Check that the new keypair is valid before persisting it
-    if (getSslCertificate().isNull()) {
+    if (!credentialsValid()) {
         throw std::runtime_error("Newly generated certificate is unreadable");
     }
-    if (getSslKey().isNull()) {
+    if (!credentialsValid()) {
         throw std::runtime_error("Newly generated private key is unreadable");
     }
 
@@ -120,22 +120,11 @@ IdentityManager::IdentityManager()
         qInfo() << "No existing credentials found";
         createCredentials(settings);
     }
-    else if (getSslCertificate().isNull()) {
-        qWarning() << "Certificate is unreadable";
+    else if (!credentialsValid()) {
+        qWarning() << "Invalid stored credentials; generating a new identity";
         createCredentials(settings);
     }
-    else if (getSslKey().isNull()) {
-        qWarning() << "Private key is unreadable";
-        createCredentials(settings);
-    }
-
-    // We should have valid credentials now. If not, we're screwed
-    if (getSslCertificate().isNull()) {
-        throw std::runtime_error("Certificate is unreadable");
-    }
-    if (getSslKey().isNull()) {
-        throw std::runtime_error("Private key is unreadable");
-    }
+    if (!credentialsValid()) throw std::runtime_error("Identity certificate/key validation failed");
 
     // Load the unique ID from settings
     m_CachedUniqueId = settings.value(SER_UNIQUEID).toString();
@@ -154,56 +143,15 @@ IdentityManager::IdentityManager()
     }
 }
 
-QSslCertificate
-IdentityManager::getSslCertificate()
+bool IdentityManager::credentialsValid() const
 {
-    if (m_CachedSslCert.isNull()) {
-        m_CachedSslCert = QSslCertificate(m_CachedPemCert);
-    }
-    return m_CachedSslCert;
-}
-
-QSslKey
-IdentityManager::getSslKey()
-{
-    if (m_CachedSslKey.isNull()) {
-        // This seemingly useless const_cast is required for old OpenSSL headers
-        // where BIO_new_mem_buf's parameter is not declared const like those on
-        // the Steam Link hardware.
-        BIO* bio = BIO_new_mem_buf(const_cast<char*>(m_CachedPrivateKey.constData()), -1);
-        THROW_BAD_ALLOC_IF_NULL(bio);
-
-        EVP_PKEY* pk = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
-        BIO_free(bio);
-
-        bio = BIO_new(BIO_s_mem());
-        THROW_BAD_ALLOC_IF_NULL(bio);
-
-        // We must write out our PEM in the old PKCS1 format for SecureTransport
-        // on macOS/iOS to be able to read it.
-#ifdef Q_OS_DARWIN
-        PEM_write_bio_PrivateKey_traditional(bio, pk, nullptr, nullptr, 0, nullptr, 0);
-#else
-        PEM_write_bio_PrivateKey(bio, pk, nullptr, nullptr, 0, nullptr, 0);
-#endif
-
-        BUF_MEM* mem;
-        BIO_get_mem_ptr(bio, &mem);
-        m_CachedSslKey = QSslKey(QByteArray(mem->data, (int)mem->length), QSsl::Rsa);
-
-        BIO_free(bio);
-        EVP_PKEY_free(pk);
-    }
-    return m_CachedSslKey;
-}
-
-QSslConfiguration
-IdentityManager::getSslConfig()
-{
-    QSslConfiguration sslConfig(QSslConfiguration::defaultConfiguration());
-    sslConfig.setLocalCertificate(getSslCertificate());
-    sslConfig.setPrivateKey(getSslKey());
-    return sslConfig;
+    BIO *certBio=BIO_new_mem_buf(m_CachedPemCert.constData(),static_cast<int>(m_CachedPemCert.size()));
+    BIO *keyBio=BIO_new_mem_buf(m_CachedPrivateKey.constData(),static_cast<int>(m_CachedPrivateKey.size()));
+    X509 *cert=certBio?PEM_read_bio_X509(certBio,nullptr,nullptr,nullptr):nullptr;
+    EVP_PKEY *key=keyBio?PEM_read_bio_PrivateKey(keyBio,nullptr,nullptr,nullptr):nullptr;
+    bool valid=cert && key && X509_check_private_key(cert,key)==1;
+    BIO_free(certBio);BIO_free(keyBio);X509_free(cert);EVP_PKEY_free(key);
+    return valid;
 }
 
 QString

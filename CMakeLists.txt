@@ -37,7 +37,7 @@ if(ENABLE_QT)
   )
 endif()
 
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL 3.0 REQUIRED)
 find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h REQUIRED)
 find_library(AVCODEC_LIBRARY NAMES avcodec REQUIRED)
 find_library(AVUTIL_LIBRARY NAMES avutil REQUIRED)
@@ -83,9 +83,9 @@ find_path(SIMDE_INCLUDE_DIR simde/x86/sse2.h)
 if(SIMDE_INCLUDE_DIR)
   target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE ${SIMDE_INCLUDE_DIR})
 endif()
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE moonlight-common-c OpenSSL::Crypto ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OPUS_LIBRARY})
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE moonlight-common-c OpenSSL::SSL OpenSSL::Crypto ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OPUS_LIBRARY})
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-  src/plugin-main.cpp src/receiver.cpp src/media.cpp
+  src/plugin-main.cpp src/receiver.cpp src/media.cpp src/http-transport.cpp
   third_party/moonlight-6.2/nvhttp.cpp third_party/moonlight-6.2/nvhttp.h
   third_party/moonlight-6.2/nvpairingmanager.cpp third_party/moonlight-6.2/nvpairingmanager.h
   third_party/moonlight-6.2/nvaddress.cpp third_party/moonlight-6.2/nvapp.cpp
@@ -98,7 +98,7 @@ set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_nam
 option(RECEIVER_BUILD_TESTS "Build headless media and settings tests" ON)
 if(RECEIVER_BUILD_TESTS)
   enable_testing()
-  add_executable(receiver-tests tests/tests.cpp src/media.cpp
+  add_executable(receiver-tests tests/tests.cpp src/media.cpp src/http-transport.cpp
     third_party/moonlight-6.2/nvhttp.cpp third_party/moonlight-6.2/nvhttp.h
     third_party/moonlight-6.2/identitymanager.cpp third_party/moonlight-6.2/nvaddress.cpp third_party/moonlight-6.2/nvapp.cpp)
   set_target_properties(receiver-tests PROPERTIES AUTOMOC ON)
@@ -107,10 +107,11 @@ if(RECEIVER_BUILD_TESTS)
     target_include_directories(receiver-tests SYSTEM PRIVATE ${SIMDE_INCLUDE_DIR})
   endif()
   target_compile_definitions(receiver-tests PRIVATE TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
-  target_link_libraries(receiver-tests PRIVATE OBS::libobs Qt6::Core Qt6::Network moonlight-common-c OpenSSL::Crypto ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OPUS_LIBRARY})
+  target_link_libraries(receiver-tests PRIVATE OBS::libobs Qt6::Core Qt6::Network moonlight-common-c OpenSSL::SSL OpenSSL::Crypto ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OPUS_LIBRARY})
   add_test(NAME media-and-settings COMMAND receiver-tests)
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND)
+    add_test(NAME self-contained-tls COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/tls_integration.py $<TARGET_FILE:receiver-tests>)
     add_test(NAME receive-only-audit COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/audit_receive_only.py)
   endif()
 endif()

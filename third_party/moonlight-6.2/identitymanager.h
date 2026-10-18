@@ -1,8 +1,6 @@
 #pragma once
 
-#include <QSslConfiguration>
-#include <QSslCertificate>
-#include <QSslKey>
+#include "peer-certificate.h"
 #include <QSettings>
 
 class IdentityManager
@@ -18,8 +16,6 @@ public:
     QByteArray
     getPrivateKey();
 
-    QSslConfiguration
-    getSslConfig();
 
     static
     IdentityManager*
@@ -28,11 +24,7 @@ public:
 private:
     IdentityManager();
 
-    QSslCertificate
-    getSslCertificate();
-
-    QSslKey
-    getSslKey();
+    bool credentialsValid() const;
 
     void
     createCredentials(QSettings& settings);
@@ -43,8 +35,6 @@ private:
 
     // Lazy initialized
     QString m_CachedUniqueId;
-    QSslCertificate m_CachedSslCert;
-    QSslKey m_CachedSslKey;
 
     static IdentityManager* s_Im;
     static QString s_StoragePath;

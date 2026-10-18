@@ -1,7 +1,6 @@
 #pragma once
 #include "media.hpp"
 #include <QThread>
-#include <QSslCertificate>
 #include <condition_variable>
 #include <atomic>
 #include <utility>

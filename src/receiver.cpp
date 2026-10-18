@@ -21,11 +21,11 @@ QString hostStore(const Settings &s) {
     auto key=QCryptographicHash::hash(QByteArray::fromStdString(s.host+":"+std::to_string(s.port)),QCryptographicHash::Sha256).toHex();
     return QString::fromStdString(storageDirectory)+"/host-"+key+".ini";
 }
-QSslCertificate loadPin(const Settings &s) {
+PeerCertificate loadPin(const Settings &s) {
     QSettings store(hostStore(s),QSettings::IniFormat);
-    return QSslCertificate(store.value("certificate").toByteArray());
+    return PeerCertificate(store.value("certificate").toByteArray());
 }
-void savePin(const Settings &s,const QSslCertificate &cert) {
+void savePin(const Settings &s,const PeerCertificate &cert) {
     QSettings store(hostStore(s),QSettings::IniFormat);store.setValue("certificate",cert.toPem());store.sync();
     if(store.status()!=QSettings::NoError)throw std::runtime_error("Cannot save paired host certificate");
     QFile::setPermissions(hostStore(s),QFileDevice::ReadOwner|QFileDevice::WriteOwner);
@@ -65,7 +65,7 @@ void initializeIdentity(const std::string &directory) {
     if(!QDir().mkpath(QString::fromStdString(directory)))throw std::runtime_error("Cannot create OBS receiver configuration directory");
     auto path=QString::fromStdString(directory)+"/identity.ini";
     IdentityManager::setStoragePath(path);
-    IdentityManager::get()->getSslConfig();
+    IdentityManager::get();
     QFile::setPermissions(path,QFileDevice::ReadOwner|QFileDevice::WriteOwner);
 }
 
@@ -154,7 +154,7 @@ void Receiver::hostOperation(Job job,const Settings &s,const std::string &pin) {
         auto version=NvHTTP::getXmlString(info,"appversion");
         if(NvHTTP::parseQuad(version).isEmpty())throw std::runtime_error("Host did not report a valid version");
         NvPairingManager pairing(address,http.httpsPort(),http.serverCert(),&cancel_);
-        QSslCertificate cert;
+        PeerCertificate cert;
         auto result=pairing.pair(version,QString::fromStdString(pin),cert);
         if(result!=NvPairingManager::PAIRED)throw std::runtime_error(result==NvPairingManager::PIN_WRONG?"Pairing PIN did not match":"Pairing failed; check the host pairing page");
         savePin(s,cert);http.setServerCert(cert);message("Paired. Refresh the app list, then connect.");

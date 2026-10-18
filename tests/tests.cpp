@@ -1,5 +1,11 @@
 #include "media.hpp"
 #include "nvhttp.h"
+#include "http-transport.hpp"
+#include <QTemporaryDir>
+#include <QFile>
+#include <QDir>
+#include <thread>
+#include <chrono>
 #include <QCoreApplication>
 #include <fstream>
 #include <iostream>
@@ -15,7 +21,39 @@ template<typename F>static void rejects(F f){bool failed=false;try{f();}catch(co
 
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
+    QTemporaryDir emptyPlugins;
+    QCoreApplication::setLibraryPaths({emptyPlugins.path()});
     try {
+        QString identityDirectory=argc>2?QString::fromLocal8Bit(argv[2]):emptyPlugins.path();
+        QDir().mkpath(identityDirectory);
+        IdentityManager::setStoragePath(identityDirectory+"/identity.ini");
+        auto *identity=IdentityManager::get();
+        check(!PeerCertificate(identity->getCertificate()).isNull(),"OpenSSL identity parsing failed without Qt TLS plugins");
+        check(PeerCertificate("invalid certificate").isNull(),"invalid certificate accepted");
+        if(argc>1 && std::string(argv[1])=="--write-identity") {
+            QFile cert(identityDirectory+"/client.pem"),key(identityDirectory+"/client.key");
+            check(cert.open(QIODevice::WriteOnly)&&key.open(QIODevice::WriteOnly),"test credential files unavailable");
+            cert.write(identity->getCertificate());key.write(identity->getPrivateKey());return 0;
+        }
+        if(argc==7 && std::string(argv[1])=="--request") {
+            QUrl url(QString::fromLocal8Bit(argv[3]));QFile file(QString::fromLocal8Bit(argv[4]));
+            PeerCertificate pin;if(file.open(QIODevice::ReadOnly))pin=PeerCertificate(file.readAll());
+            NvHTTP http(NvAddress(url.host(),static_cast<uint16_t>(url.port())),static_cast<uint16_t>(url.port()),pin,true);
+            std::atomic<bool> cancel=false;http.setCancellationFlag(&cancel);
+            int delay=std::stoi(argv[6]);std::thread timer;
+            if(delay>0)timer=std::thread([&]{std::this_thread::sleep_for(std::chrono::milliseconds(delay));cancel=true;});
+            try {
+                auto response=http.openConnectionToString(url,"probe",nullptr,std::stoi(argv[5]),NvHTTP::NVLL_NONE);
+                if(timer.joinable())timer.join();std::cout<<response.toStdString();return 0;
+            }catch(...){if(timer.joinable())timer.join();throw;}
+        }
+        using ReceiverHttp::parse;
+        check(parse("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc",false).body=="abc","HTTP length framing failed");
+        check(!parse("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\na",false).complete,"partial HTTP body accepted");
+        check(parse("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n",false).body=="abc","chunked response failed");
+        rejects([]{parse("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\na",true);});
+        rejects([]{parse("HTTP/1.1 200 OK\r\nContent-Length: 99999999\r\n\r\n",false);});
+        rejects([]{parse("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",false);});
         uint32_t unsignedValue=0;int signedValue=0;
         check(parseSdpAttributeToUInt("a=test:4294967295\r\n","a=test",&unsignedValue)&&unsignedValue==UINT32_MAX,"SDP uint32 boundary failed");
         check(!parseSdpAttributeToUInt("a=test:4294967296\r\n","a=test",&unsignedValue),"SDP uint32 overflow accepted");

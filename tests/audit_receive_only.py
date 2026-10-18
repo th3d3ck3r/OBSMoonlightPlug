@@ -6,6 +6,8 @@ root=Path(__file__).resolve().parents[1]
 source="\n".join(p.read_text() for p in (root/"src").glob("*.*"))
 for pattern in [r"\bLiSend[A-Z]\w*\s*\(",r"SDL_CreateWindow",r"QWidget",r"QWindow",r"QDesktopServices",r"\.quitApp\s*\("]:
     assert not re.search(pattern,source),f"Forbidden behavior found: {pattern}"
+tls_source=source+"\n"+"\n".join(p.read_text() for p in (root/"third_party/moonlight-6.2").glob("*.*"))
+assert "QSsl" not in tls_source, "Receiver must not require OBS Qt TLS plugins"
 input_code=(root/"third_party/moonlight-common-c/src/InputStream.c").read_text()
 guard = re.search(r"#ifdef OBS_RECEIVE_ONLY(.*?)#else", input_code, re.S)
 assert guard, "Receive-only guard is missing"

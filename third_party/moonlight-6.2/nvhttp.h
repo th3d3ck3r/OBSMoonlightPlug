@@ -8,8 +8,7 @@
 
 #include <QUrl>
 #include <atomic>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
+#include <QObject>
 
 class NvComputer;
 
@@ -64,41 +63,6 @@ private:
     QByteArray m_StatusMessage;
 };
 
-class QtNetworkReplyException : public std::exception
-{
-public:
-    QtNetworkReplyException(QNetworkReply::NetworkError error, QString errorText) :
-        m_Error(error),
-        m_ErrorText(errorText.toUtf8())
-    {
-
-    }
-
-    const char* what() const throw()
-    {
-        return m_ErrorText.constData();
-    }
-
-    const char* getErrorText() const
-    {
-        return m_ErrorText.constData();
-    }
-
-    QNetworkReply::NetworkError getError() const
-    {
-        return m_Error;
-    }
-
-    QString toQString() const
-    {
-        return QString::fromUtf8(m_ErrorText) + " (Error " + QString::number(m_Error) + ")";
-    }
-
-private:
-    QNetworkReply::NetworkError m_Error;
-    QByteArray m_ErrorText;
-};
-
 class NvHTTP : public QObject
 {
     Q_OBJECT
@@ -110,7 +74,7 @@ public:
         NVLL_VERBOSE
     };
 
-    explicit NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert, bool useTrueUid, QNetworkAccessManager* nam = nullptr);
+    explicit NvHTTP(NvAddress address, uint16_t httpsPort, PeerCertificate serverCert, bool useTrueUid);
 
     void setCancellationFlag(const std::atomic<bool>* flag) { m_Cancel = flag; }
 
@@ -142,14 +106,14 @@ public:
                            int timeoutMs,
                            NvLogLevel logLevel = NvLogLevel::NVLL_VERBOSE);
 
-    void setServerCert(QSslCertificate serverCert);
+    void setServerCert(PeerCertificate serverCert);
     void setAddress(NvAddress address);
     void setHttpsPort(uint16_t port);
     void setTrueUid(bool useTrueUid);
 
     NvAddress address();
 
-    QSslCertificate serverCert();
+    PeerCertificate serverCert();
 
     uint16_t httpPort();
 
@@ -183,19 +147,8 @@ public:
     QUrl m_BaseUrlHttp;
     QUrl m_BaseUrlHttps;
 private:
-    void
-    handleSslErrors(QNetworkReply* reply, const QList<QSslError>& errors);
-
-    QNetworkReply*
-    openConnection(QUrl baseUrl,
-                   QString command,
-                   QString arguments,
-                   int timeoutMs,
-                   NvLogLevel logLevel);
-
     NvAddress m_Address;
     const std::atomic<bool>* m_Cancel = nullptr;
-    QNetworkAccessManager* m_Nam;
-    QSslCertificate m_ServerCert;
+    PeerCertificate m_ServerCert;
     bool m_UseTrueUid;
 };

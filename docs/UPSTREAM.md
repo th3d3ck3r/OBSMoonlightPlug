@@ -17,6 +17,7 @@ Adaptations:
 - Isolated client credentials and host certificate pins under this OBS module's
   configuration directory, with owner-only file permissions where supported.
 - Added cancellable network requests and a bounded pairing wait.
+- Adapted NvHTTP to bundled OpenSSL for TLS and certificate parsing, using Qt only for TCP/DNS. Exact leaf-certificate pins and client-certificate authentication are preserved; OBS Qt TLS backend plugins are not required.
 - Preserved binary hash bytes when deriving the pairing AES key and validated
   complete challenge-response lengths.
 - Range-check SDP integers before narrowing to fixed-width protocol fields.

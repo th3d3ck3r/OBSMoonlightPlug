@@ -17,12 +17,12 @@ public:
         ALREADY_IN_PROGRESS
     };
 
-    explicit NvPairingManager(NvAddress address, uint16_t httpsPort, QSslCertificate cert, const std::atomic<bool>* cancel);
+    explicit NvPairingManager(NvAddress address, uint16_t httpsPort, PeerCertificate cert, const std::atomic<bool>* cancel);
 
     ~NvPairingManager();
 
     PairState
-    pair(QString appVersion, QString pin, QSslCertificate& serverCert);
+    pair(QString appVersion, QString pin, PeerCertificate& serverCert);
 
 private:
     QByteArray

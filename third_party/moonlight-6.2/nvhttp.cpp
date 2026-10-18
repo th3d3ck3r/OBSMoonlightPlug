@@ -6,13 +6,13 @@
 
 #include <QDebug>
 #include <QUuid>
-#include <QtNetwork/QNetworkReply>
+
 #include <QEventLoop>
 #include <QTimer>
 #include <QXmlStreamReader>
-#include <QSslKey>
+#include "http-transport.hpp"
 #include <QtEndian>
-#include <QNetworkProxy>
+
 
 #define FAST_FAIL_TIMEOUT_MS 2000
 #define REQUEST_TIMEOUT_MS 5000
@@ -26,8 +26,7 @@
 #define XML_NAME_EQUALS(x, y) ((x) == (u##y))
 #endif
 
-NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert, bool useTrueUid, QNetworkAccessManager* nam) :
-    m_Nam(nam ? nam : new QNetworkAccessManager(this)),
+NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, PeerCertificate serverCert, bool useTrueUid) :
     m_ServerCert(serverCert),
     m_UseTrueUid(useTrueUid)
 {
@@ -37,12 +36,10 @@ NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert
     setAddress(address);
     setHttpsPort(httpsPort);
 
-    // Never use a proxy server
-    QNetworkProxy noProxy(QNetworkProxy::NoProxy);
-    m_Nam->setProxy(noProxy);
+
 }
 
-void NvHTTP::setServerCert(QSslCertificate serverCert)
+void NvHTTP::setServerCert(PeerCertificate serverCert)
 {
     m_ServerCert = serverCert;
 }
@@ -74,7 +71,7 @@ NvAddress NvHTTP::address()
     return m_Address;
 }
 
-QSslCertificate NvHTTP::serverCert()
+PeerCertificate NvHTTP::serverCert()
 {
     return m_ServerCert;
 }
@@ -413,152 +410,20 @@ NvHTTP::getXmlString(QString xml,
     return QString();
 }
 
-void NvHTTP::handleSslErrors(QNetworkReply* reply, const QList<QSslError>& errors)
+QString NvHTTP::openConnectionToString(QUrl baseUrl, QString command, QString arguments,
+                                       int timeoutMs, NvLogLevel logLevel)
 {
-    bool ignoreErrors = true;
-
-    if (m_ServerCert.isNull()) {
-        // We should never make an HTTPS request without a cert
-        Q_ASSERT(!m_ServerCert.isNull());
-        return;
+    QUrl url(baseUrl);url.setPath("/"+command);
+    url.setQuery("uniqueid="+(m_UseTrueUid?IdentityManager::get()->getUniqueId():"0123456789ABCDEF")+
+                 "&uuid="+QUuid::createUuid().toRfc4122().toHex()+
+                 ((!arguments.isNull())?("&"+arguments):""));
+    if(logLevel>=NVLL_VERBOSE)qInfo()<<"Executing request:"<<command;
+    auto *identity=IdentityManager::get();
+    try {
+        auto response=ReceiverHttp::get(url,identity->getCertificate(),identity->getPrivateKey(),m_ServerCert,m_Cancel,timeoutMs);
+        if(response.status<200 || response.status>=300)throw GfeHttpResponseException(response.status,"Host HTTP request failed");
+        return QString::fromUtf8(response.body);
+    } catch(const ReceiverHttp::PinError&) {
+        throw GfeHttpResponseException(401,"Server certificate changed; pair again");
     }
-
-    for (const QSslError& error : errors) {
-        if (m_ServerCert != error.certificate()) {
-            ignoreErrors = false;
-            break;
-        }
-    }
-
-    if (ignoreErrors) {
-        reply->ignoreSslErrors(errors);
-    }
-}
-
-QString
-NvHTTP::openConnectionToString(QUrl baseUrl,
-                               QString command,
-                               QString arguments,
-                               int timeoutMs,
-                               NvLogLevel logLevel)
-{
-    QNetworkReply* reply = openConnection(baseUrl, command, arguments, timeoutMs, logLevel);
-    QString ret;
-
-    QTextStream stream(reply);
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    stream.setEncoding(QStringConverter::Utf8);
-#else
-    stream.setCodec("UTF-8");
-#endif
-
-    ret = stream.readAll();
-    delete reply;
-
-    return ret;
-}
-
-QNetworkReply*
-NvHTTP::openConnection(QUrl baseUrl,
-                       QString command,
-                       QString arguments,
-                       int timeoutMs,
-                       NvLogLevel logLevel)
-{
-    // Port must be set
-    Q_ASSERT(baseUrl.port(0) != 0);
-
-    // Build a URL for the request
-    QUrl url(baseUrl);
-    url.setPath("/" + command);
-
-    // Use a placeholder UID for GFE allow them to quit games for each other.
-    url.setQuery("uniqueid=" + (m_UseTrueUid ? IdentityManager::get()->getUniqueId() : "0123456789ABCDEF") +
-                 "&uuid=" + QUuid::createUuid().toRfc4122().toHex() +
-                 ((arguments != nullptr) ? ("&" + arguments) : ""));
-
-    QNetworkRequest request(url);
-
-    // Add our client certificate
-    request.setSslConfiguration(IdentityManager::get()->getSslConfig());
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    // Disable HTTP/2 (GFE 3.22 doesn't like it) and Qt 6 enables it by default
-    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-#endif
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
-    // Use fine-grained idle timeouts to avoid calling QNetworkAccessManager::clearAccessCache(),
-    // which tears down the NAM's global thread each time. We must not keep persistent connections
-    // or GFE will puke.
-    request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute, 0);
-#endif
-
-    auto sslErrorsConnection = connect(m_Nam, &QNetworkAccessManager::sslErrors, this, &NvHTTP::handleSslErrors);
-    QNetworkReply* reply = m_Nam->get(request);
-
-    // Run the request with a timeout if requested
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, &loop, &QEventLoop::quit);
-    if (timeoutMs) {
-        QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
-    }
-    if (logLevel >= NvLogLevel::NVLL_VERBOSE) {
-        qInfo() << "Executing request:" << command;
-    }
-    QTimer cancelTimer;
-    if (m_Cancel) {
-        connect(&cancelTimer, &QTimer::timeout, &loop, [&]() { if (m_Cancel->load()) { reply->abort(); loop.quit(); } });
-        cancelTimer.start(25);
-    }
-    loop.exec(QEventLoop::ExcludeUserInputEvents);
-
-    // Abort the request if it timed out
-    if (!reply->isFinished())
-    {
-        if (logLevel >= NvLogLevel::NVLL_ERROR) {
-            qWarning() << "Aborting request:" << command;
-        }
-        reply->abort();
-    }
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 3, 0)
-    // If we couldn't use fine-grained connection idle timeouts, kill them all now
-    m_Nam->clearAccessCache();
-#endif
-    disconnect(sslErrorsConnection);
-
-    // Handle error
-    if (reply->error() != QNetworkReply::NoError)
-    {
-        if (logLevel >= NvLogLevel::NVLL_ERROR) {
-            qWarning() << command << "request failed with error:" << reply->error();
-        }
-
-        if (reply->error() == QNetworkReply::SslHandshakeFailedError) {
-            // This will trigger falling back to HTTP for the serverinfo query
-            // then pairing again to get the updated certificate.
-            GfeHttpResponseException exception(401, "Server certificate mismatch");
-            delete reply;
-            throw exception;
-        }
-        else if (reply->error() == QNetworkReply::OperationCanceledError) {
-            QtNetworkReplyException exception(QNetworkReply::TimeoutError, "Request timed out");
-            delete reply;
-            throw exception;
-        }
-        else {
-            QtNetworkReplyException exception(reply->error(), reply->errorString());
-            delete reply;
-            throw exception;
-        }
-    }
-
-    if (url.scheme() == "https" && !m_ServerCert.isNull() && reply->sslConfiguration().peerCertificate() != m_ServerCert) {
-        delete reply;
-        throw GfeHttpResponseException(401, "Server certificate changed; pair again");
-    }
-    return reply;
 }

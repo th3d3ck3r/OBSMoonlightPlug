@@ -13,7 +13,7 @@
 
 #define REQUEST_TIMEOUT_MS 5000
 
-NvPairingManager::NvPairingManager(NvAddress address, uint16_t httpsPort, QSslCertificate cert, const std::atomic<bool>* cancel) :
+NvPairingManager::NvPairingManager(NvAddress address, uint16_t httpsPort, PeerCertificate cert, const std::atomic<bool>* cancel) :
     m_Http(address, httpsPort, cert, true)
 {
     m_Http.setCancellationFlag(cancel);
@@ -208,7 +208,7 @@ NvPairingManager::saltPin(const QByteArray& salt, QString pin)
 }
 
 NvPairingManager::PairState
-NvPairingManager::pair(QString appVersion, QString pin, QSslCertificate& serverCert)
+NvPairingManager::pair(QString appVersion, QString pin, PeerCertificate& serverCert)
 {
     int serverMajorVersion = NvHTTP::parseQuad(appVersion).at(0);
     qInfo() << "Pairing with server generation:" << serverMajorVersion;
@@ -252,7 +252,7 @@ NvPairingManager::pair(QString appVersion, QString pin, QSslCertificate& serverC
         return PairState::ALREADY_IN_PROGRESS;
     }
 
-    QSslCertificate unverifiedServerCert = QSslCertificate(serverCertStr);
+    PeerCertificate unverifiedServerCert = PeerCertificate(serverCertStr);
     if (unverifiedServerCert.isNull()) {
         Q_ASSERT(!unverifiedServerCert.isNull());
 
