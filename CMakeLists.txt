@@ -95,6 +95,27 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CXX_VISIBILITY_PRESET hid
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
+if(APPLE)
+  # moonlight-common-c has process-wide connection globals. A dedicated helper
+  # for each OBS source makes multiple streams safe without forking its internals.
+  add_executable(obs-gamestream-worker src/mac-worker.cpp)
+  target_include_directories(obs-gamestream-worker PRIVATE src)
+  target_link_libraries(obs-gamestream-worker PRIVATE moonlight-common-c OpenSSL::Crypto)
+  set_target_properties(obs-gamestream-worker PROPERTIES
+    OUTPUT_NAME "obs-gamestream-worker"
+    BUILD_RPATH "@loader_path/../Frameworks"
+    INSTALL_RPATH "@loader_path/../Frameworks"
+  )
+  add_dependencies(${CMAKE_PROJECT_NAME} obs-gamestream-worker)
+  add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:obs-gamestream-worker>"
+      "$<TARGET_BUNDLE_DIR:${CMAKE_PROJECT_NAME}>/Contents/MacOS/obs-gamestream-worker"
+    COMMENT "Embed the per-stream Moonlight worker in the macOS OBS plugin"
+    VERBATIM
+  )
+endif()
+
 option(RECEIVER_BUILD_TESTS "Build headless media and settings tests" ON)
 if(RECEIVER_BUILD_TESTS)
   enable_testing()
