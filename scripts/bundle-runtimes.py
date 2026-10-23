@@ -22,6 +22,9 @@ def main():
     plugin=args.plugin.resolve()
     if mac:
         executable=plugin/"Contents/MacOS/obs-gamestream-receiver"
+        helper=plugin/"Contents/MacOS/obs-gamestream-worker"
+        if not helper.is_file():
+            raise RuntimeError("Per-stream Mac helper missing from plugin bundle")
         target=plugin/"Contents/Frameworks"
         files=list(args.sdk.rglob("*.dylib"))
     else:
@@ -32,7 +35,7 @@ def main():
     lookup={}
     for file in files:
         lookup.setdefault(file.name.lower(),file)
-    queue=deque([executable]);visited=set();bundled=[]
+    queue=deque([executable,helper] if mac else [executable]);visited=set();bundled=[]
     while queue:
         binary=queue.popleft()
         if binary in visited:continue
@@ -59,7 +62,7 @@ def main():
             if not destination.exists():
                 shutil.copy2(source.resolve(),destination);bundled.append(name);queue.append(destination)
             if mac:
-                reference="@loader_path/../Frameworks/"+name if binary==executable else "@loader_path/"+name
+                reference="@loader_path/../Frameworks/"+name if binary in (executable,helper) else "@loader_path/"+name
                 subprocess.run(["install_name_tool","-change",dependency,reference,str(binary)],check=True)
                 subprocess.run(["install_name_tool","-id","@loader_path/"+name,str(destination)],check=True)
     # Finish every resource write before sealing the bundle.
