@@ -1,6 +1,6 @@
 # GameStream Receiver for OBS — 0.1.0 preview
 
-Receive Apollo/Sunshine video and audio directly as an OBS source. All controls stay inside OBS; no separate Moonlight playback window is created. This is an experimental source package, not an install-ready release.
+Receive Apollo/Sunshine video and audio directly as an OBS source. All controls stay inside OBS; no separate Moonlight playback window is created. This is an experimental source package, not an install-ready release. The macOS multi-source feature is awaiting live host/device validation.
 
 ## Current status
 
@@ -17,7 +17,7 @@ The transport and pairing code are pinned to Moonlight v6.2.0. OBS owns renderin
 - SDR NV12 and 10-bit HDR P010/PQ with luminance metadata; HDR requires host/decoder support and HDR OBS recording configuration.
 - Stereo, 5.1 or 7.1 audio, host audio playback toggle, buffer and audio offset controls.
 - LAN/remote network selection, automatic reconnect and an optional disconnect-when-hidden setting.
-- Connect/disconnect controls and status in Source Properties. One active stream per OBS process.
+- Connect/disconnect controls and status in Source Properties. On macOS, independent sources can stream simultaneously from different hosts via a separate Moonlight worker process per source. The Windows build remains single-stream pending a separate implementation.
 
 ## Build Windows and Mac packages
 
@@ -31,7 +31,7 @@ Close OBS first and keep every bundled runtime library alongside the plugin.
 
 **Windows:** Copy the artifact's obs-gamestream-receiver directory into `%ProgramData%\obs-studio\plugins\`. It should contain `bin\64bit\obs-gamestream-receiver.dll` and its data directory. Relaunch OBS. Do not install the Linux .so on Windows.
 
-**Mac:** Copy `obs-gamestream-receiver.plugin` to `~/Library/Application Support/obs-studio/plugins/`, creating the folder if necessary. Relaunch OBS. Downloaded development bundles may require approval through macOS Privacy & Security. This project does not supply a notarized installer yet.
+**Mac:** Keep the entire signed plugin bundle intact (including its Contents/MacOS/obs-gamestream-worker helper). Copy `obs-gamestream-receiver.plugin` to `~/Library/Application Support/obs-studio/plugins/`, creating the folder if necessary. Relaunch OBS. Downloaded development bundles may require approval through macOS Privacy & Security. This project does not supply a notarized installer yet.
 
 If the source is missing, check OBS Help → Log Files → View Current Log for GameStream Receiver errors. Remove the installed plugin folder to uninstall.
 
@@ -45,11 +45,15 @@ If the source is missing, check OBS Help → Log Files → View Current Log for 
 6. Confirm video in the OBS canvas and audio in its mixer, then make a short recording. OBS recording settings control the output file separately from these stream settings.
 7. Click **Disconnect** to end reception. The plugin does not quit the host app. An app selected for streaming may be launched on the host; this is protocol session control.
 
-Do not open another Moonlight receiver for the same host session during this first test. A host already running a different app is rejected rather than automatically quitting that app.
+A single Apollo/Sunshine host may not support multiple simultaneous sessions. First validate two receiver sources from two different hosts. The macOS helper allows independent connections; the host still controls its session policy. A host already running a different app is rejected rather than automatically quitting that app.
 
 ## Receive-only behavior
 
 No keyboard, mouse or controller is advertised or sent. The bundled streaming core is compiled with OBS_RECEIVE_ONLY: input APIs remain uninitialized and its haptics-enable startup message is suppressed. Pairing, launch/resume, transport acknowledgments and stream management still use the host protocol. This is not a passive network sniffer.
+
+## macOS multi-receiver validation (feature branch)
+
+Add two **new GameStream Receiver** source instances in the same OBS scene, each configured for a separate paired Sunshine/Apollo host (do not choose "Add Existing" or OBS will reuse the same source). Connect both, confirm that both previews and audio meters update, and disconnect one while verifying the other continues. Next verify reconnect, switching scenes, recording, and two hardware decoders on the base M1 Mac. A duplicated existing OBS source is the *same* source and does not create another independent connection. The bundled helper executes only Moonlight receive-side networking. OBS retains the existing VideoToolbox/FFmpeg video and Opus audio decoders.
 
 ## Linux development checks
 
