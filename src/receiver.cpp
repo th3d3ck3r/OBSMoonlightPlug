@@ -17,7 +17,9 @@
 #endif
 
 namespace {
+#ifndef __APPLE__
 std::mutex sessionMutex;
+#endif
 std::atomic<Receiver*> current{nullptr};
 std::string storageDirectory;
 #ifdef __APPLE__
@@ -248,7 +250,6 @@ void Receiver::connectStream(const Settings &s) {
         media.audioCleanup();
         obs_source_output_video(source_,nullptr);
     };
-    bool graceful=false;
     try {
         const std::string addr=s.host;
         const std::string version=appVersion.toStdString();
@@ -266,8 +267,11 @@ void Receiver::connectStream(const Settings &s) {
         request.append(version.data(),static_cast<qsizetype>(version.size()));
         request.append(gfe.data(),static_cast<qsizetype>(gfe.size()));
         request.append(rtsp.data(),static_cast<qsizetype>(rtsp.size()));
-        if(worker.write(request)!=request.size() || !worker.waitForBytesWritten(5000))
+        if(worker.write(request)!=request.size())
             throw std::runtime_error("Could not initialize Moonlight helper");
+        while(worker.bytesToWrite()>0)
+            if(!worker.waitForBytesWritten(5000))
+                throw std::runtime_error("Moonlight helper initialization timed out");
 
         QByteArray pending;
         for(;;) {
@@ -335,13 +339,12 @@ void Receiver::connectStream(const Settings &s) {
                 break;
             }
         }
-        graceful=true;
     } catch(...) {
         shutdown();
         throw;
     }
     shutdown();
-    (void)graceful;
+
 #else
     media.configure(s);ended_=false;current=this;starting_=true;
     int error=LiStartConnection(&server,&config,&listener,&video,&audio,this,0,this,0);
