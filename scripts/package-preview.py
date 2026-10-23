@@ -56,7 +56,12 @@ if platform == 'macos-universal':
         plugin = Path(directory) / 'obs-gamestream-receiver.plugin'
         subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(plugin)], check=True)
         executable = plugin / 'Contents/MacOS/obs-gamestream-receiver'
-        subprocess.run(['lipo', str(executable), '-verify_arch', 'arm64', 'x86_64'], check=True)
+        helper = plugin / 'Contents/MacOS/obs-gamestream-worker'
+        for binary in (executable, helper):
+            subprocess.run(['lipo', str(binary), '-verify_arch', 'arm64', 'x86_64'], check=True)
+            if not os.access(binary, os.X_OK):
+                raise RuntimeError(f'Archive lost executable permissions: {binary.name}')
+        subprocess.run([str(helper), '--self-test'], check=True)
         if not os.access(executable, os.X_OK):
             raise RuntimeError('Archive lost executable permissions')
     print('Extracted Mac ZIP passed strict signature, universal architecture and executable permission checks')
