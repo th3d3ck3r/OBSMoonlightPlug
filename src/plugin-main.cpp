@@ -1,6 +1,10 @@
 #include "receiver.hpp"
 #include <obs-module.h>
 #include <memory>
+#ifdef __APPLE__
+#include <QFileInfo>
+#include <QDir>
+#endif
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-gamestream-receiver", "en-US")
@@ -124,6 +128,15 @@ bool obs_module_load(void) {
         char *path=obs_module_config_path("");
         if(!path)return false;
         std::string configPath(path);bfree(path);initializeIdentity(configPath);
+#ifdef __APPLE__
+        const char *moduleBinary=obs_get_module_binary_path(obs_current_module());
+        if(!moduleBinary)throw std::runtime_error("Cannot locate Mac plugin binary");
+        QFileInfo moduleInfo(QString::fromUtf8(moduleBinary));
+        QString helperPath=moduleInfo.isDir()
+            ?QDir(moduleInfo.absoluteFilePath()).filePath("Contents/MacOS/obs-gamestream-worker")
+            :moduleInfo.dir().filePath("obs-gamestream-worker");
+        initializeReceiverWorker(helperPath.toStdString());
+#endif
         obs_source_info info{};info.id="obs_gamestream_receiver";info.type=OBS_SOURCE_TYPE_INPUT;
         info.output_flags=OBS_SOURCE_ASYNC_VIDEO|OBS_SOURCE_AUDIO;
         info.get_name=name;info.create=create;info.destroy=destroy;info.update=update;
