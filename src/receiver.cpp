@@ -11,11 +11,20 @@
 #include <cstdarg>
 #include <cstdio>
 #include <memory>
+#ifdef __APPLE__
+#include "worker-wire.hpp"
+#include <QProcess>
+#endif
 
 namespace {
+#ifndef __APPLE__
 std::mutex sessionMutex;
+#endif
 std::atomic<Receiver*> current{nullptr};
 std::string storageDirectory;
+#ifdef __APPLE__
+std::string workerBinaryPath;
+#endif
 
 QString hostStore(const Settings &s) {
     auto key=QCryptographicHash::hash(QByteArray::fromStdString(s.host+":"+std::to_string(s.port)),QCryptographicHash::Sha256).toHex();
@@ -59,6 +68,10 @@ int supportedFormats(const Settings &s,int hostModes) {
     return formats;
 }
 }
+
+#ifdef __APPLE__
+void initializeReceiverWorker(const std::string &path) { workerBinaryPath=path; }
+#endif
 
 void initializeIdentity(const std::string &directory) {
     storageDirectory=directory;
@@ -164,8 +177,10 @@ void Receiver::hostOperation(Job job,const Settings &s,const std::string &pin) {
     if(job==Job::Apps)message("Host app list refreshed.");else notifyProperties();
 }
 void Receiver::connectStream(const Settings &s) {
+#ifndef __APPLE__
     std::unique_lock<std::mutex> ownership(sessionMutex,std::try_to_lock);
     if(!ownership.owns_lock())throw std::runtime_error("Only one GameStream Receiver can be connected per OBS process");
+#endif
     NvAddress address(QString::fromStdString(s.host),static_cast<uint16_t>(s.port));
     auto cert=loadPin(s);if(cert.isNull())throw std::runtime_error("Pair this OBS receiver with the host first");
     NvHTTP http(address,0,cert,true);http.setCancellationFlag(&cancel_);
@@ -206,6 +221,131 @@ void Receiver::connectStream(const Settings &s) {
     audio.init=audioSetup;audio.decodeAndPlaySample=audioFrame;audio.cleanup=audioCleanup;audio.capabilities=CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION;
     CONNECTION_LISTENER_CALLBACKS listener;LiInitializeConnectionCallbacks(&listener);
     listener.stageStarting=stageStarting;listener.stageFailed=stageFailed;listener.connectionStarted=started;listener.connectionTerminated=::terminated;listener.logMessage=logMessage;
+
+#ifdef __APPLE__
+    // The Moonlight C core keeps connection state in process-wide globals.
+    // Spawn one isolated streaming core per OBS source; decoding remains here.
+    if(workerBinaryPath.empty())throw std::runtime_error("Mac receiver helper path is unavailable");
+    media.configure(s);
+    ended_=false;
+    QProcess worker;
+    worker.setProcessChannelMode(QProcess::SeparateChannels);
+    worker.start(QString::fromStdString(workerBinaryPath));
+    if(!worker.waitForStarted(5000))
+        throw std::runtime_error("Cannot start bundled Moonlight helper: "+worker.errorString().toStdString());
+
+    auto shutdown=[&] {
+        if(worker.state()!=QProcess::NotRunning) {
+            worker.write("X",1);
+            worker.closeWriteChannel();
+            if(!worker.waitForFinished(3000)) {
+                worker.terminate();
+                if(!worker.waitForFinished(1500)) {
+                    worker.kill();
+                    worker.waitForFinished(1500);
+                }
+            }
+        }
+        media.videoCleanup();
+        media.audioCleanup();
+        obs_source_output_video(source_,nullptr);
+    };
+    try {
+        const std::string addr=s.host;
+        const std::string version=appVersion.toStdString();
+        const std::string gfe=gfeVersion.toStdString();
+        const std::string rtsp=sessionUrl.toStdString();
+        WorkerWire::Launch launch{};
+        launch.stream=config;launch.hostCodecModes=hostModes;
+        launch.addressSize=static_cast<uint32_t>(addr.size());
+        launch.appVersionSize=static_cast<uint32_t>(version.size());
+        launch.gfeVersionSize=static_cast<uint32_t>(gfe.size());
+        launch.rtspUrlSize=static_cast<uint32_t>(rtsp.size());
+        if(!WorkerWire::valid(launch))throw std::runtime_error("Invalid Moonlight worker configuration");
+        QByteArray request(reinterpret_cast<const char*>(&launch),sizeof launch);
+        request.append(addr.data(),static_cast<qsizetype>(addr.size()));
+        request.append(version.data(),static_cast<qsizetype>(version.size()));
+        request.append(gfe.data(),static_cast<qsizetype>(gfe.size()));
+        request.append(rtsp.data(),static_cast<qsizetype>(rtsp.size()));
+        if(worker.write(request)!=request.size())
+            throw std::runtime_error("Could not initialize Moonlight helper");
+        while(worker.bytesToWrite()>0)
+            if(!worker.waitForBytesWritten(5000))
+                throw std::runtime_error("Moonlight helper initialization timed out");
+
+        QByteArray pending;
+        for(;;) {
+            if(cancel_ || ended_)break;
+            worker.waitForReadyRead(30);
+            pending+=worker.readAllStandardOutput();
+            // A private framed binary stream. Never parse arbitrary stdout text as packets.
+            while(pending.size()>=static_cast<qsizetype>(sizeof(WorkerWire::Header))) {
+                WorkerWire::Header h{};
+                std::memcpy(&h,pending.constData(),sizeof h);
+                if(!WorkerWire::valid(h))throw std::runtime_error("Invalid Moonlight helper packet");
+                const auto total=static_cast<qsizetype>(sizeof h)+static_cast<qsizetype>(h.length);
+                if(pending.size()<total)break;
+                const char *payload=pending.constData()+sizeof h;
+                const auto type=static_cast<WorkerWire::Type>(h.type);
+                switch(type) {
+                case WorkerWire::Type::VideoSetup: {
+                    if(h.length!=sizeof(WorkerWire::VideoSetup))throw std::runtime_error("Invalid video setup");
+                    WorkerWire::VideoSetup v{};std::memcpy(&v,payload,sizeof v);
+                    if(media.videoSetup(v.format,v.width,v.height,v.fps)!=0)
+                        throw std::runtime_error("Cannot initialize video decoder");
+                    break;
+                }
+                case WorkerWire::Type::VideoFrame: {
+                    if(h.length<sizeof(WorkerWire::VideoFrame))throw std::runtime_error("Invalid video packet");
+                    WorkerWire::VideoFrame v{};std::memcpy(&v,payload,sizeof v);
+                    if(v.length==0 || v.length!=h.length-sizeof v)
+                        throw std::runtime_error("Invalid video packet length");
+                    LENTRY entry{};entry.data=const_cast<char*>(payload+sizeof v);
+                    entry.length=static_cast<int>(v.length);
+                    DECODE_UNIT unit{};unit.bufferList=&entry;unit.fullLength=entry.length;
+                    unit.presentationTimeUs=v.ptsUs;unit.frameType=static_cast<int>(v.frameType);
+                    media.videoFrame(&unit);
+                    break;
+                }
+                case WorkerWire::Type::VideoCleanup:media.videoCleanup();break;
+                case WorkerWire::Type::AudioSetup: {
+                    if(h.length!=sizeof(OPUS_MULTISTREAM_CONFIGURATION))throw std::runtime_error("Invalid audio setup");
+                    OPUS_MULTISTREAM_CONFIGURATION a{};std::memcpy(&a,payload,sizeof a);
+                    if(media.audioSetup(&a)!=0)throw std::runtime_error("Cannot initialize Opus decoder");
+                    break;
+                }
+                case WorkerWire::Type::AudioFrame:
+                    if(h.length>0 && h.length<=65536)
+                        media.audioFrame(const_cast<char*>(payload),static_cast<int>(h.length));
+                    else throw std::runtime_error("Invalid Opus packet length");
+                    break;
+                case WorkerWire::Type::AudioCleanup:media.audioCleanup();break;
+                case WorkerWire::Type::Status:
+                    if(h.length<=2048)message(std::string(payload,payload+h.length));
+                    break;
+                case WorkerWire::Type::Ended:
+                    if(h.length<=2048)message(std::string(payload,payload+h.length));
+                    ended_=true;break;
+                case WorkerWire::Type::Error:
+                    throw std::runtime_error(std::string(payload,payload+std::min<uint32_t>(h.length,2048)));
+                }
+                pending.remove(0,total);
+            }
+            // Drain stderr separately to avoid blocking the child; never log launch secrets.
+            worker.readAllStandardError();
+            if(worker.state()==QProcess::NotRunning) {
+                if(!ended_ && !cancel_)throw std::runtime_error(
+                    "Moonlight worker exited (code "+std::to_string(worker.exitCode())+")");
+                break;
+            }
+        }
+    } catch(...) {
+        shutdown();
+        throw;
+    }
+    shutdown();
+
+#else
     media.configure(s);ended_=false;current=this;starting_=true;
     int error=LiStartConnection(&server,&config,&listener,&video,&audio,this,0,this,0);
     starting_=false;
@@ -216,4 +356,5 @@ void Receiver::connectStream(const Settings &s) {
     LiStopConnection();current=nullptr;media.videoCleanup();media.audioCleanup();
     obs_source_output_video(source_,nullptr);
     // No /cancel call: disconnecting a recorder must not quit the host application.
+#endif
 }

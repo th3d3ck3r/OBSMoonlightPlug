@@ -38,3 +38,8 @@ private:
 };
 
 void initializeIdentity(const std::string &directory);
+
+#ifdef __APPLE__
+// Set once when OBS loads the module; each source launches its own worker.
+void initializeReceiverWorker(const std::string &path);
+#endif

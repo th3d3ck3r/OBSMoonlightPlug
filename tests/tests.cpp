@@ -1,4 +1,5 @@
 #include "media.hpp"
+#include "worker-wire.hpp"
 #include "nvhttp.h"
 #include "http-transport.hpp"
 #include <QTemporaryDir>
@@ -65,6 +66,20 @@ int main(int argc,char **argv) {
         check(parseSdpAttributeToInt("a=test:-2147483648\r\n","a=test",&signedValue)&&signedValue==INT32_MIN,"SDP int32 boundary failed");
         check(!parseSdpAttributeToInt("a=test:2147483648\r\n","a=test",&signedValue),"SDP int32 overflow accepted");
         check(!parseSdpAttributeToInt("a=test:nope\r\n","a=test",&signedValue),"SDP nonnumeric input accepted");
+        // Worker IPC rejects invalid magic, impossible frame types, and overlong payloads.
+        WorkerWire::Header header{WorkerWire::Magic,static_cast<uint32_t>(WorkerWire::Type::VideoFrame),1024};
+        check(WorkerWire::valid(header),"valid worker header rejected");
+        header.magic=0;check(!WorkerWire::valid(header),"worker packet magic not checked");
+        header.magic=WorkerWire::Magic;header.length=WorkerWire::MaxMessage+1;
+        check(!WorkerWire::valid(header),"oversize worker packet accepted");
+        header.length=0;header.type=100;
+        check(!WorkerWire::valid(header),"unknown worker packet type accepted");
+        WorkerWire::Launch launch{};
+        launch.addressSize=12;launch.appVersionSize=4;
+        check(WorkerWire::valid(launch),"valid worker launch rejected");
+        launch.rtspUrlSize=WorkerWire::MaxString+1;
+        check(!WorkerWire::valid(launch),"overlong worker launch accepted");
+
         Settings s;s.host="192.168.1.20";s.validate();
         for(auto host:{"https://host","host/path","host name",""}){auto bad=s;bad.host=host;rejects([&]{bad.validate();});}
         auto bad=s;bad.width=1919;rejects([&]{bad.validate();});
